@@ -4,36 +4,61 @@ import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft } from 'lucide-react'
+import { useProfile } from '@/lib/useProfile'
+import { ArrowLeft, Camera } from 'lucide-react'
 
-type Producto = {
-  id: string
+type ProductoInfo = {
   nombre: string
   precio: number
   stock: number
 }
 
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 export default function ConsultarPage() {
-  const [producto, setProducto] = useState<Producto | null>(null)
+  const { profile } = useProfile()
+  const [producto, setProducto] = useState<ProductoInfo | null>(null)
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const scannerRef = useRef<Html5Qrcode | null>(null)
 
-  const buscarProducto = async (id: string) => {
-    const { data, error } = await supabase
-      .from('productos')
-      .select('id, nombre, precio, stock')
-      .eq('id', id)
-      .single()
+  const buscarProducto = async (codigo: string) => {
+    if (!profile?.tienda_id) {
+      setError('No se pudo identificar tu tienda')
+      return
+    }
 
-    if (error || !data) {
-      setError('Producto no encontrado')
+    // Si el texto escaneado tiene forma de UUID, es nuestro QR impreso (busca por id).
+    // Si no, asumimos que es el código de barras original de fábrica.
+    const query = ES_UUID.test(codigo)
+      ? supabase.from('productos').select('id, nombre, precio').eq('id', codigo).maybeSingle()
+      : supabase
+          .from('productos')
+          .select('id, nombre, precio')
+          .eq('codigo_barras', codigo)
+          .maybeSingle()
+
+    const { data: prod, error: errorProd } = await query
+
+    if (errorProd || !prod) {
+      setError('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
       setProducto(null)
       return
     }
 
+    const { data: inv } = await supabase
+      .from('inventario')
+      .select('stock')
+      .eq('producto_id', prod.id)
+      .eq('tienda_id', profile.tienda_id)
+      .maybeSingle()
+
     setError('')
-    setProducto(data)
+    setProducto({
+      nombre: prod.nombre,
+      precio: prod.precio,
+      stock: inv?.stock ?? 0,
+    })
   }
 
   const startScan = async () => {
@@ -79,9 +104,9 @@ export default function ConsultarPage() {
         {!scanning && (
           <button
             onClick={startScan}
-            className="w-full bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
+            className="w-full flex items-center justify-center gap-2 bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
           >
-            📷 Escanear QR
+            <Camera className="w-5 h-5" /> Escanear
           </button>
         )}
 
@@ -101,12 +126,8 @@ export default function ConsultarPage() {
         {producto && (
           <div className="bg-white p-4 rounded-lg shadow-sm">
             <h2 className="text-lg font-bold text-gray-800">{producto.nombre}</h2>
-            <p className="text-2xl text-red-800 font-bold">
-              S/ {producto.precio.toFixed(2)}
-            </p>
-            <p className="text-sm text-gray-600">
-              Stock disponible: {producto.stock}
-            </p>
+            <p className="text-2xl text-red-800 font-bold">S/ {producto.precio.toFixed(2)}</p>
+            <p className="text-sm text-gray-600">Stock en tu tienda: {producto.stock}</p>
           </div>
         )}
       </div>
