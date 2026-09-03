@@ -34,10 +34,10 @@ export default function NuevoProductoPage() {
       setScanning(true)
       setError('')
 
-      const scanner = new Html5Qrcode('reader-nuevo-producto')
-      scannerRef.current = scanner
-
       try {
+        const scanner = new Html5Qrcode('reader-nuevo-producto')
+        scannerRef.current = scanner
+
         await scanner.start(
           { facingMode: 'environment' },
           { fps: 10, qrbox: 250 },
@@ -49,9 +49,10 @@ export default function NuevoProductoPage() {
           },
           () => {}
         )
-      } catch {
+      } catch (err) {
         if (!cancelado) {
-          setError('No se pudo acceder a la cámara. Revisa los permisos del navegador.')
+          const mensaje = err instanceof Error ? err.message : String(err)
+          setError(`No se pudo acceder a la cámara: ${mensaje}`)
           setScanning(false)
         }
       }
