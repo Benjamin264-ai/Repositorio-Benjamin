@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { User, Lock, ShoppingCart } from 'lucide-react'
+import { User, Lock, Sparkles, SprayCan, Droplets } from 'lucide-react'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -25,9 +25,7 @@ export default function LoginPage() {
     setLoading(false)
 
     if (error) {
-      // Mensaje temporal de depuración: te muestra el motivo real
-      setError(`Error real: ${error.message}`)
-      console.error(error)
+      setError('Correo o contraseña incorrectos')
       return
     }
 
@@ -36,23 +34,28 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen relative overflow-hidden flex items-center justify-center bg-gradient-to-br from-blue-700 via-blue-600 to-blue-500">
-      {/* Ondas decorativas de fondo */}
-      <div className="absolute -top-24 -right-24 w-96 h-96 rounded-full bg-blue-400/30 blur-2xl" />
-      <div className="absolute bottom-0 left-0 w-full h-64 bg-blue-800/20 rounded-t-[100%]" />
-      <div className="absolute bottom-0 left-0 w-full h-40 bg-blue-900/20 rounded-t-[100%]" />
+    <div className="min-h-screen relative overflow-hidden flex items-center justify-center bg-gradient-to-b from-red-900 via-red-800 to-red-700">
+      {/* Íconos decorativos de limpieza, sutiles en el fondo */}
+      <SprayCan className="absolute top-16 left-8 w-16 h-16 text-white/10 -rotate-12" />
+      <Droplets className="absolute top-32 right-10 w-14 h-14 text-white/10 rotate-12" />
+      <Sparkles className="absolute bottom-32 left-12 w-12 h-12 text-white/10" />
+      <SprayCan className="absolute bottom-20 right-16 w-20 h-20 text-white/10 rotate-45" />
+      <Droplets className="absolute top-1/2 left-4 w-10 h-10 text-white/10" />
 
       <div className="relative z-10 w-full max-w-sm px-6">
-        {/* Icono */}
-        <div className="flex justify-center mb-10">
-          <div className="relative">
-            <ShoppingCart className="w-16 h-16 text-white" strokeWidth={1.5} />
-          </div>
+        {/* Marca */}
+        <div className="text-center mb-10">
+          <p className="text-red-200 text-xs tracking-[0.3em] uppercase">Comercial</p>
+          <h1 className="text-5xl font-black tracking-tight text-white -mt-1">MARY</h1>
+          <p className="text-red-200 text-sm mt-2 flex items-center justify-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5" />
+            Artículos de limpieza
+          </p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div className="flex items-center gap-3 border-2 border-white/70 rounded-lg px-4 py-3 bg-white/95">
-            <User className="w-5 h-5 text-blue-700 shrink-0" />
+            <User className="w-5 h-5 text-red-800 shrink-0" />
             <input
               type="email"
               placeholder="Correo"
@@ -64,7 +67,7 @@ export default function LoginPage() {
           </div>
 
           <div className="flex items-center gap-3 border-2 border-white/70 rounded-lg px-4 py-3 bg-white/95">
-            <Lock className="w-5 h-5 text-blue-700 shrink-0" />
+            <Lock className="w-5 h-5 text-red-800 shrink-0" />
             <input
               type="password"
               placeholder="Contraseña"
@@ -76,15 +79,13 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-sm text-yellow-200 bg-red-900/30 rounded px-3 py-2">
-              {error}
-            </p>
+            <p className="text-sm text-yellow-100 bg-red-950/40 rounded px-3 py-2">{error}</p>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-white text-blue-700 py-3 rounded-lg font-bold tracking-wide uppercase mt-2 disabled:opacity-60"
+            className="w-full bg-white text-red-800 py-3 rounded-lg font-bold tracking-wide uppercase mt-2 disabled:opacity-60"
           >
             {loading ? 'Ingresando...' : 'Ingresar'}
           </button>

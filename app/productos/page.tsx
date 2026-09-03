@@ -1,91 +1,235 @@
 'use client'
-import { useEffect, useState } from 'react'
+
+import { useState, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { Plus, Pencil, ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ScanLine, Keyboard } from 'lucide-react'
 
-type Producto = {
-  id: string
-  nombre: string
-  precio: number
-  stock: number
-  stock_minimo: number
-}
+type Modo = 'elegir' | 'escanear' | 'manual'
 
-export default function ProductosPage() {
-  const { profile, loading: loadingProfile } = useProfile()
-  const [productos, setProductos] = useState<Producto[]>([])
-  const [loading, setLoading] = useState(true)
+export default function NuevoProductoPage() {
+  const { profile } = useProfile()
+  const router = useRouter()
+  const scannerRef = useRef<Html5Qrcode | null>(null)
 
-  useEffect(() => {
-    const fetchProductos = async () => {
-      if (!profile?.tienda_id) return
-      const { data, error } = await supabase
-        .from('productos')
-        .select('id, nombre, precio, stock, stock_minimo')
-        .eq('tienda_id', profile.tienda_id)
-        .order('nombre')
+  const [modo, setModo] = useState<Modo>('elegir')
+  const [scanning, setScanning] = useState(false)
+  const [codigoBarras, setCodigoBarras] = useState('')
+  const [nombre, setNombre] = useState('')
+  const [precio, setPrecio] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-      if (!error && data) setProductos(data)
-      setLoading(false)
+  const iniciarEscaneo = async () => {
+    setModo('escanear')
+    setScanning(true)
+    setError('')
+
+    const scanner = new Html5Qrcode('reader-nuevo-producto')
+    scannerRef.current = scanner
+
+    try {
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: 250 },
+        async (decodedText) => {
+          setCodigoBarras(decodedText)
+          await scanner.stop()
+          setScanning(false)
+        },
+        () => {}
+      )
+    } catch {
+      setError('No se pudo acceder a la cámara')
+      setScanning(false)
+    }
+  }
+
+  const cancelarEscaneo = async () => {
+    if (scannerRef.current) {
+      await scannerRef.current.stop()
+    }
+    setScanning(false)
+    setModo('elegir')
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+
+    if (!profile?.tienda_id) {
+      setError('No se pudo identificar tu tienda. Contacta al admin.')
+      return
     }
 
-    if (profile) fetchProductos()
-  }, [profile])
+    setLoading(true)
 
-  const esAdmin = profile?.rol === 'admin'
+    // 1. ¿Ya existe este producto? (por código de barras, o si no, por nombre)
+    let existente = null
+    if (codigoBarras) {
+      const { data } = await supabase
+        .from('productos')
+        .select('id')
+        .eq('codigo_barras', codigoBarras)
+        .maybeSingle()
+      existente = data
+    }
+    if (!existente) {
+      const { data } = await supabase
+        .from('productos')
+        .select('id')
+        .ilike('nombre', nombre.trim())
+        .maybeSingle()
+      existente = data
+    }
+
+    let productoId = existente?.id
+
+    if (!productoId) {
+      // 2a. No existe: crear el producto nuevo en el catálogo compartido
+      const { data: nuevo, error: errorProducto } = await supabase
+        .from('productos')
+        .insert({
+          nombre: nombre.trim(),
+          precio: parseFloat(precio),
+          codigo_barras: codigoBarras || null,
+        })
+        .select('id')
+        .single()
+
+      if (errorProducto || !nuevo) {
+        setLoading(false)
+        setError(errorProducto?.message ?? 'No se pudo crear el producto')
+        return
+      }
+      productoId = nuevo.id
+    }
+
+    // 2b. Asegurar que exista una fila de inventario para TU tienda (stock en 0 por defecto)
+    const { error: errorInventario } = await supabase.from('inventario').upsert(
+      {
+        producto_id: productoId,
+        tienda_id: profile.tienda_id,
+        // No se toca "stock" si ya existía la fila (evita resetear el conteo real)
+      },
+      { onConflict: 'producto_id,tienda_id', ignoreDuplicates: true }
+    )
+
+    setLoading(false)
+
+    if (errorInventario) {
+      setError(errorInventario.message)
+      return
+    }
+
+    router.push('/productos')
+  }
 
   return (
-    <div className="min-h-screen bg-teal-50 p-6">
+    <div className="min-h-screen bg-red-50 p-6">
       <div className="max-w-md mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <Link href="/" className="flex items-center gap-1 text-teal-700 text-sm">
-            <ArrowLeft className="w-4 h-4" /> Volver
-          </Link>
-          <Link
-            href="/productos/nuevo"
-            className="flex items-center gap-1 bg-teal-700 text-white text-sm font-medium px-3 py-2 rounded-lg"
-          >
-            <Plus className="w-4 h-4" /> Agregar
-          </Link>
-        </div>
+        <Link href="/productos" className="flex items-center gap-1 text-red-800 text-sm mb-4">
+          <ArrowLeft className="w-4 h-4" /> Volver
+        </Link>
 
-        <h1 className="text-xl font-bold text-gray-800 mb-4">Productos</h1>
+        <h1 className="text-xl font-bold text-gray-800 mb-1">Agregar producto</h1>
+        <p className="text-sm text-gray-500 mb-4">
+          El stock se registra después, desde la lista de Productos.
+        </p>
 
-        {(loadingProfile || loading) && <p className="text-gray-500">Cargando...</p>}
-
-        <div className="space-y-3">
-          {productos.map((p) => (
-            <div
-              key={p.id}
-              className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-center"
+        {modo === 'elegir' && (
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={iniciarEscaneo}
+              className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
             >
-              <div>
-                <p className="font-semibold text-gray-800">{p.nombre}</p>
-                <p className="text-sm text-gray-500">
-                  S/ {p.precio.toFixed(2)} · Stock: {p.stock}
-                  {p.stock <= p.stock_minimo && (
-                    <span className="text-red-600 font-medium"> · Bajo</span>
-                  )}
-                </p>
+              <ScanLine className="w-7 h-7 text-red-800" />
+              <span className="text-sm font-medium text-gray-800">Escanear código</span>
+            </button>
+            <button
+              onClick={() => setModo('manual')}
+              className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
+            >
+              <Keyboard className="w-7 h-7 text-red-800" />
+              <span className="text-sm font-medium text-gray-800">Ingresar manual</span>
+            </button>
+          </div>
+        )}
+
+        {modo === 'escanear' && scanning && (
+          <div className="mb-4">
+            <button
+              onClick={cancelarEscaneo}
+              className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium mb-3"
+            >
+              Cancelar
+            </button>
+            <div id="reader-nuevo-producto"></div>
+          </div>
+        )}
+
+        {(modo === 'manual' || (modo === 'escanear' && codigoBarras && !scanning)) && (
+          <form onSubmit={handleSubmit} className="space-y-4 bg-white p-5 rounded-xl shadow-sm mt-4">
+            {codigoBarras && (
+              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                <p className="text-xs text-red-700 font-medium">Código escaneado:</p>
+                <p className="text-sm text-gray-800 font-mono break-all">{codigoBarras}</p>
               </div>
+            )}
 
-              {esAdmin && (
-                <Link
-                  href={`/productos/${p.id}/editar`}
-                  className="text-teal-700 p-2 hover:bg-teal-50 rounded-lg"
-                >
-                  <Pencil className="w-4 h-4" />
-                </Link>
-              )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+              <input
+                value={nombre}
+                onChange={(e) => setNombre(e.target.value)}
+                required
+                className="w-full border rounded-lg px-3 py-2 text-black"
+              />
             </div>
-          ))}
 
-          {!loading && productos.length === 0 && (
-            <p className="text-gray-500 text-sm">Todavía no hay productos registrados.</p>
-          )}
-        </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Precio (S/) — solo aplica si es un producto nuevo
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={precio}
+                onChange={(e) => setPrecio(e.target.value)}
+                required
+                className="w-full border rounded-lg px-3 py-2 text-black"
+              />
+            </div>
+
+            {error && <p className="text-red-600 text-sm">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-red-800 text-white py-3 rounded-lg font-medium disabled:opacity-60"
+            >
+              {loading ? 'Guardando...' : 'Guardar producto'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setModo('elegir')
+                setCodigoBarras('')
+                setNombre('')
+                setPrecio('')
+                setError('')
+              }}
+              className="w-full text-sm text-gray-500"
+            >
+              Empezar de nuevo
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )
