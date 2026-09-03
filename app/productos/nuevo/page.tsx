@@ -58,12 +58,19 @@ export default function NuevoProductoPage() {
       }
     }
 
-    iniciar()
+    // Truco anti "doble-montaje" de React en modo desarrollo: si esta ejecución
+    // es la "fantasma", su limpieza va a cancelar el timer ANTES de que dispare,
+    // así nunca llega a tocar la cámara. Solo la ejecución real la abre de verdad.
+    const timer = setTimeout(() => {
+      if (!cancelado) iniciar()
+    }, 0)
 
     return () => {
       cancelado = true
+      clearTimeout(timer)
       if (scannerRef.current) {
         scannerRef.current.stop().catch(() => {})
+        scannerRef.current = null
       }
     }
   }, [modo, codigoBarras])
