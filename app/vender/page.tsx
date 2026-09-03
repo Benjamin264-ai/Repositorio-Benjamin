@@ -5,18 +5,21 @@ import Link from 'next/link'
 import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { ArrowLeft, Banknote, Smartphone } from 'lucide-react'
+import { ArrowLeft, Banknote, Smartphone, Camera } from 'lucide-react'
 
-type Producto = {
+type ProductoVenta = {
   id: string
   nombre: string
   precio: number
   stock: number
+  inventarioId: string
 }
+
+const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default function VenderPage() {
   const { profile } = useProfile()
-  const [producto, setProducto] = useState<Producto | null>(null)
+  const [producto, setProducto] = useState<ProductoVenta | null>(null)
   const [cantidad, setCantidad] = useState(1)
   const [medioPago, setMedioPago] = useState<'efectivo' | 'yape' | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -25,22 +28,50 @@ export default function VenderPage() {
   const [saving, setSaving] = useState(false)
   const scannerRef = useRef<Html5Qrcode | null>(null)
 
-  const buscarProducto = async (id: string) => {
-    const { data, error } = await supabase
-      .from('productos')
-      .select('id, nombre, precio, stock')
-      .eq('id', id)
-      .single()
+  const buscarProducto = async (codigo: string) => {
+    if (!profile?.tienda_id) {
+      setError('No se pudo identificar tu tienda')
+      return
+    }
 
-    if (error || !data) {
-      setError('Producto no encontrado')
+    const query = ES_UUID.test(codigo)
+      ? supabase.from('productos').select('id, nombre, precio').eq('id', codigo).maybeSingle()
+      : supabase
+          .from('productos')
+          .select('id, nombre, precio')
+          .eq('codigo_barras', codigo)
+          .maybeSingle()
+
+    const { data: prod, error: errorProd } = await query
+
+    if (errorProd || !prod) {
+      setError('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
+      setProducto(null)
+      return
+    }
+
+    const { data: inv, error: errorInv } = await supabase
+      .from('inventario')
+      .select('id, stock')
+      .eq('producto_id', prod.id)
+      .eq('tienda_id', profile.tienda_id)
+      .maybeSingle()
+
+    if (errorInv || !inv) {
+      setError('Este producto no tiene stock registrado en tu tienda')
       setProducto(null)
       return
     }
 
     setError('')
     setSuccess('')
-    setProducto(data)
+    setProducto({
+      id: prod.id,
+      nombre: prod.nombre,
+      precio: prod.precio,
+      stock: inv.stock,
+      inventarioId: inv.id,
+    })
     setCantidad(1)
     setMedioPago(null)
   }
@@ -89,8 +120,8 @@ export default function VenderPage() {
     setSaving(true)
     setError('')
 
-    // 1. Registrar la venta
     const total = producto.precio * cantidad
+
     const { error: ventaError } = await supabase.from('ventas').insert({
       producto_id: producto.id,
       tienda_id: profile.tienda_id,
@@ -107,16 +138,20 @@ export default function VenderPage() {
       return
     }
 
-    // 2. Descontar el stock
     const { error: stockError } = await supabase
-      .from('productos')
-      .update({ stock: producto.stock - cantidad })
-      .eq('id', producto.id)
+      .from('inventario')
+      .update({
+        stock: producto.stock - cantidad,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', producto.inventarioId)
 
     setSaving(false)
 
     if (stockError) {
-      setError('La venta se registró, pero hubo un problema actualizando el stock: ' + stockError.message)
+      setError(
+        'La venta se registró, pero hubo un problema actualizando el stock: ' + stockError.message
+      )
       return
     }
 
@@ -138,9 +173,9 @@ export default function VenderPage() {
         {!scanning && !producto && (
           <button
             onClick={startScan}
-            className="w-full bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
+            className="w-full flex items-center justify-center gap-2 bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
           >
-            📷 Escanear producto
+            <Camera className="w-5 h-5" /> Escanear producto
           </button>
         )}
 
@@ -184,9 +219,7 @@ export default function VenderPage() {
                 >
                   −
                 </button>
-                <span className="text-lg font-bold w-10 text-center text-black">
-                  {cantidad}
-                </span>
+                <span className="text-lg font-bold w-10 text-center text-black">{cantidad}</span>
                 <button
                   onClick={() => setCantidad((c) => Math.min(producto.stock, c + 1))}
                   className="w-10 h-10 rounded-lg bg-gray-100 text-gray-700 font-bold"
