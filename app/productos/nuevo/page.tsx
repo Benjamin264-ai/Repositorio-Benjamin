@@ -43,9 +43,13 @@ export default function NuevoProductoPage() {
           { fps: 10, qrbox: 250 },
           async (decodedText) => {
             if (cancelado) return
-            setCodigoBarras(decodedText)
-            await scanner.stop()
+            try {
+              await scanner.stop()
+            } catch {
+              // La cámara puede fallar al cerrar si ya se limpió sola; no es grave, seguimos.
+            }
             setScanning(false)
+            setCodigoBarras(decodedText)
           },
           () => {}
         )
