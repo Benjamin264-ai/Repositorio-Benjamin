@@ -15,13 +15,10 @@ export default function EditarProductoPage() {
 
   const [nombre, setNombre] = useState('')
   const [precio, setPrecio] = useState('')
-  const [stock, setStock] = useState('')
-  const [stockMinimo, setStockMinimo] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  // Si no es admin, lo saca de esta pantalla
   useEffect(() => {
     if (!loadingProfile && profile && profile.rol !== 'admin') {
       router.push('/productos')
@@ -32,15 +29,13 @@ export default function EditarProductoPage() {
     const fetchProducto = async () => {
       const { data, error } = await supabase
         .from('productos')
-        .select('nombre, precio, stock, stock_minimo')
+        .select('nombre, precio')
         .eq('id', id)
         .single()
 
       if (!error && data) {
         setNombre(data.nombre)
         setPrecio(String(data.precio))
-        setStock(String(data.stock))
-        setStockMinimo(String(data.stock_minimo))
       }
       setLoading(false)
     }
@@ -57,8 +52,6 @@ export default function EditarProductoPage() {
       .update({
         nombre,
         precio: parseFloat(precio),
-        stock: parseInt(stock, 10),
-        stock_minimo: parseInt(stockMinimo, 10),
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -75,20 +68,24 @@ export default function EditarProductoPage() {
 
   if (loadingProfile || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-teal-50">
+      <div className="min-h-screen flex items-center justify-center bg-red-50">
         Cargando...
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-teal-50 p-6">
+    <div className="min-h-screen bg-red-50 p-6">
       <div className="max-w-md mx-auto">
-        <Link href="/productos" className="flex items-center gap-1 text-teal-700 text-sm mb-4">
+        <Link href="/productos" className="flex items-center gap-1 text-red-800 text-sm mb-4">
           <ArrowLeft className="w-4 h-4" /> Volver
         </Link>
 
-        <h1 className="text-xl font-bold text-gray-800 mb-4">Editar producto</h1>
+        <h1 className="text-xl font-bold text-gray-800 mb-1">Editar producto</h1>
+        <p className="text-sm text-gray-500 mb-4">
+          El nombre y el precio son compartidos entre PUESTO10 y PUESTO18. El stock se ajusta
+          desde la lista de Productos.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-white p-5 rounded-xl shadow-sm">
           <div>
@@ -114,36 +111,12 @@ export default function EditarProductoPage() {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stock</label>
-            <input
-              type="number"
-              min="0"
-              value={stock}
-              onChange={(e) => setStock(e.target.value)}
-              required
-              className="w-full border rounded-lg px-3 py-2 text-black"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Stock mínimo</label>
-            <input
-              type="number"
-              min="0"
-              value={stockMinimo}
-              onChange={(e) => setStockMinimo(e.target.value)}
-              required
-              className="w-full border rounded-lg px-3 py-2 text-black"
-            />
-          </div>
-
           {error && <p className="text-red-600 text-sm">{error}</p>}
 
           <button
             type="submit"
             disabled={saving}
-            className="w-full bg-teal-700 text-white py-3 rounded-lg font-medium disabled:opacity-60"
+            className="w-full bg-red-800 text-white py-3 rounded-lg font-medium disabled:opacity-60"
           >
             {saving ? 'Guardando...' : 'Guardar cambios'}
           </button>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Html5Qrcode } from 'html5-qrcode'
@@ -23,37 +23,86 @@ export default function NuevoProductoPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const iniciarEscaneo = async () => {
-    setModo('escanear')
-    setScanning(true)
-    setError('')
+  // Se dispara DESPUÉS de que React ya dibujó el div del lector,
+  // así la cámara siempre encuentra dónde mostrarse.
+  useEffect(() => {
+    if (modo !== 'escanear' || codigoBarras) return
 
-    const scanner = new Html5Qrcode('reader-nuevo-producto')
-    scannerRef.current = scanner
+    let cancelado = false
 
-    try {
-      await scanner.start(
-        { facingMode: 'environment' },
-        { fps: 10, qrbox: 250 },
-        async (decodedText) => {
-          setCodigoBarras(decodedText)
-          await scanner.stop()
+    // Verifica repetidamente (cada 50ms, hasta 20 veces = 1 segundo) si la casilla
+    // ya existe en pantalla, en vez de asumir un tiempo fijo de espera.
+    const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
+      new Promise((resolve) => {
+        const check = (restantes: number) => {
+          if (document.getElementById(id)) {
+            resolve(true)
+            return
+          }
+          if (restantes <= 0) {
+            resolve(false)
+            return
+          }
+          setTimeout(() => check(restantes - 1), 50)
+        }
+        check(intentos)
+      })
+
+    const iniciar = async () => {
+      setScanning(true)
+      setError('')
+
+      const existe = await esperarElemento('reader-nuevo-producto')
+      if (cancelado) return
+
+      if (!existe) {
+        setError('No se pudo preparar la cámara. Cierra esta pantalla e inténtalo de nuevo.')
+        setScanning(false)
+        return
+      }
+
+      try {
+        const scanner = new Html5Qrcode('reader-nuevo-producto')
+        scannerRef.current = scanner
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          { fps: 10, qrbox: 250 },
+          async (decodedText) => {
+            if (cancelado) return
+            try {
+              await scanner.stop()
+            } catch {
+              // La cámara puede fallar al cerrar si ya se limpió sola; no es grave, seguimos.
+            }
+            setScanning(false)
+            setCodigoBarras(decodedText)
+          },
+          () => {}
+        )
+      } catch (err) {
+        if (!cancelado) {
+          const mensaje = err instanceof Error ? err.message : String(err)
+          setError(`No se pudo acceder a la cámara: ${mensaje}`)
           setScanning(false)
-        },
-        () => {}
-      )
-    } catch {
-      setError('No se pudo acceder a la cámara')
-      setScanning(false)
+        }
+      }
     }
-  }
 
-  const cancelarEscaneo = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop()
+    iniciar()
+
+    return () => {
+      cancelado = true
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {})
+        scannerRef.current = null
+      }
     }
-    setScanning(false)
+  }, [modo, codigoBarras])
+
+  const cancelarEscaneo = () => {
     setModo('elegir')
+    setScanning(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -67,8 +116,7 @@ export default function NuevoProductoPage() {
 
     setLoading(true)
 
-    // 1. ¿Ya existe este producto? (por código de barras, o si no, por nombre)
-    let existente = null
+    let existente: { id: string } | null = null
     if (codigoBarras) {
       const { data } = await supabase
         .from('productos')
@@ -89,7 +137,6 @@ export default function NuevoProductoPage() {
     let productoId = existente?.id
 
     if (!productoId) {
-      // 2a. No existe: crear el producto nuevo en el catálogo compartido
       const { data: nuevo, error: errorProducto } = await supabase
         .from('productos')
         .insert({
@@ -108,12 +155,10 @@ export default function NuevoProductoPage() {
       productoId = nuevo.id
     }
 
-    // 2b. Asegurar que exista una fila de inventario para TU tienda (stock en 0 por defecto)
     const { error: errorInventario } = await supabase.from('inventario').upsert(
       {
         producto_id: productoId,
         tienda_id: profile.tienda_id,
-        // No se toca "stock" si ya existía la fila (evita resetear el conteo real)
       },
       { onConflict: 'producto_id,tienda_id', ignoreDuplicates: true }
     )
@@ -140,10 +185,19 @@ export default function NuevoProductoPage() {
           El stock se registra después, desde la lista de Productos.
         </p>
 
+        {/* El error ahora se muestra SIEMPRE que exista, sin importar la pantalla en la que estés */}
+        {error && (
+          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">{error}</p>
+        )}
+
         {modo === 'elegir' && (
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={iniciarEscaneo}
+              onClick={() => {
+                setCodigoBarras('')
+                setError('')
+                setModo('escanear')
+              }}
               className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
             >
               <ScanLine className="w-7 h-7 text-red-800" />
@@ -159,7 +213,7 @@ export default function NuevoProductoPage() {
           </div>
         )}
 
-        {modo === 'escanear' && scanning && (
+        {modo === 'escanear' && !codigoBarras && (
           <div className="mb-4">
             <button
               onClick={cancelarEscaneo}
@@ -167,11 +221,15 @@ export default function NuevoProductoPage() {
             >
               Cancelar
             </button>
+            {/* Este div SIEMPRE existe apenas entras a modo "escanear", antes de llamar a la cámara */}
             <div id="reader-nuevo-producto"></div>
+            {scanning && (
+              <p className="text-center text-sm text-gray-500 mt-2">Apunta al código...</p>
+            )}
           </div>
         )}
 
-        {(modo === 'manual' || (modo === 'escanear' && codigoBarras && !scanning)) && (
+        {(modo === 'manual' || (modo === 'escanear' && codigoBarras)) && (
           <form onSubmit={handleSubmit} className="space-y-4 bg-white p-5 rounded-xl shadow-sm mt-4">
             {codigoBarras && (
               <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -204,8 +262,6 @@ export default function NuevoProductoPage() {
                 className="w-full border rounded-lg px-3 py-2 text-black"
               />
             </div>
-
-            {error && <p className="text-red-600 text-sm">{error}</p>}
 
             <button
               type="submit"
