@@ -20,6 +20,7 @@ export default function NuevoProductoPage() {
   const [codigoBarras, setCodigoBarras] = useState('')
   const [nombre, setNombre] = useState('')
   const [precio, setPrecio] = useState('')
+  const [descripcion, setDescripcion] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -30,17 +31,44 @@ export default function NuevoProductoPage() {
 
     let cancelado = false
 
+    // Verifica repetidamente (cada 50ms, hasta 20 veces = 1 segundo) si la casilla
+    // ya existe en pantalla, en vez de asumir un tiempo fijo de espera.
+    const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
+      new Promise((resolve) => {
+        const check = (restantes: number) => {
+          if (document.getElementById(id)) {
+            resolve(true)
+            return
+          }
+          if (restantes <= 0) {
+            resolve(false)
+            return
+          }
+          setTimeout(() => check(restantes - 1), 50)
+        }
+        check(intentos)
+      })
+
     const iniciar = async () => {
       setScanning(true)
       setError('')
+
+      const existe = await esperarElemento('reader-nuevo-producto')
+      if (cancelado) return
+
+      if (!existe) {
+        setError('No se pudo preparar la cámara. Cierra esta pantalla e inténtalo de nuevo.')
+        setScanning(false)
+        return
+      }
 
       try {
         const scanner = new Html5Qrcode('reader-nuevo-producto')
         scannerRef.current = scanner
 
         await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: 250 },
+          { facingMode: 'environment', advanced: [{ focusMode: 'continuous' } as any] },
+          { fps: 10, qrbox: { width: 280, height: 160 } },
           async (decodedText) => {
             if (cancelado) return
             try {
@@ -62,18 +90,16 @@ export default function NuevoProductoPage() {
       }
     }
 
-    // Truco anti "doble-montaje" de React en modo desarrollo: si esta ejecución
-    // es la "fantasma", su limpieza va a cancelar el timer ANTES de que dispare,
-    // así nunca llega a tocar la cámara. Solo la ejecución real la abre de verdad.
-    const timer = setTimeout(() => {
-      if (!cancelado) iniciar()
-    }, 0)
+    iniciar()
 
     return () => {
       cancelado = true
-      clearTimeout(timer)
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {})
+        try {
+          scannerRef.current.stop().catch(() => {})
+        } catch {
+          // Puede fallar si nunca llegó a iniciar de verdad; no importa, lo ignoramos.
+        }
         scannerRef.current = null
       }
     }
@@ -121,6 +147,7 @@ export default function NuevoProductoPage() {
         .insert({
           nombre: nombre.trim(),
           precio: parseFloat(precio),
+          descripcion: descripcion.trim() || null,
           codigo_barras: codigoBarras || null,
         })
         .select('id')
@@ -242,6 +269,18 @@ export default function NuevoProductoPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Descripción (opcional)
+              </label>
+              <textarea
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                rows={2}
+                className="w-full border rounded-lg px-3 py-2 text-black"
+              />
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -257,6 +296,7 @@ export default function NuevoProductoPage() {
                 setCodigoBarras('')
                 setNombre('')
                 setPrecio('')
+                setDescripcion('')
                 setError('')
               }}
               className="w-full text-sm text-gray-500"
