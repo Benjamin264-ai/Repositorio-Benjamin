@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { ArrowLeft, Trash2 } from 'lucide-react'
+import { ArrowLeft, Trash2, ImagePlus } from 'lucide-react'
 
 export default function EditarFacturaPage() {
   const router = useRouter()
@@ -14,6 +14,9 @@ export default function EditarFacturaPage() {
   const [ruc, setRuc] = useState('')
   const [monto, setMonto] = useState('')
   const [descripcion, setDescripcion] = useState('')
+  const [fotoUrlActual, setFotoUrlActual] = useState<string | null>(null)
+  const [nuevaFoto, setNuevaFoto] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -22,7 +25,7 @@ export default function EditarFacturaPage() {
     const fetchFactura = async () => {
       const { data, error } = await supabase
         .from('facturas_pendientes')
-        .select('ruc, monto, descripcion')
+        .select('ruc, monto, descripcion, foto_url')
         .eq('id', id)
         .single()
 
@@ -30,16 +33,46 @@ export default function EditarFacturaPage() {
         setRuc(data.ruc)
         setMonto(String(data.monto))
         setDescripcion(data.descripcion)
+        setFotoUrlActual(data.foto_url)
       }
       setLoading(false)
     }
     fetchFactura()
   }, [id])
 
+  const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null
+    setNuevaFoto(file)
+    setPreviewUrl(file ? URL.createObjectURL(file) : '')
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setSaving(true)
+
+    let fotoUrl = fotoUrlActual
+
+    if (nuevaFoto) {
+      const extension = nuevaFoto.name.split('.').pop()
+      const nombreArchivo = `${crypto.randomUUID()}.${extension}`
+
+      const { error: errorSubida } = await supabase.storage
+        .from('facturas-fotos')
+        .upload(nombreArchivo, nuevaFoto)
+
+      if (errorSubida) {
+        setSaving(false)
+        setError('No se pudo subir la foto: ' + errorSubida.message)
+        return
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('facturas-fotos')
+        .getPublicUrl(nombreArchivo)
+
+      fotoUrl = urlData.publicUrl
+    }
 
     const { error } = await supabase
       .from('facturas_pendientes')
@@ -47,6 +80,7 @@ export default function EditarFacturaPage() {
         ruc: ruc.trim(),
         monto: parseFloat(monto),
         descripcion: descripcion.trim(),
+        foto_url: fotoUrl,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -119,6 +153,43 @@ export default function EditarFacturaPage() {
               rows={3}
               className="w-full border rounded-lg px-3 py-2 text-black"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Foto <span className="text-gray-400 font-normal">(adjunta foto de la factura o boleta)</span>
+            </label>
+
+            {previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt="Vista previa nueva"
+                className="w-full max-h-48 object-contain rounded-lg border mb-2"
+              />
+            ) : (
+              fotoUrlActual && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={fotoUrlActual}
+                  alt="Foto actual"
+                  className="w-full max-h-48 object-contain rounded-lg border mb-2"
+                />
+              )
+            )}
+
+            <label className="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-lg py-4 cursor-pointer hover:border-red-800">
+              <ImagePlus className="w-5 h-5 text-red-800" />
+              <span className="text-sm text-gray-600">
+                {nuevaFoto ? nuevaFoto.name : fotoUrlActual ? 'Cambiar foto' : 'Toca para elegir una foto'}
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFotoChange}
+                className="hidden"
+              />
+            </label>
           </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}

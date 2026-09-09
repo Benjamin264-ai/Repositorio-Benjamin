@@ -3,13 +3,14 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { Plus, Pencil, ArrowLeft } from 'lucide-react'
+import { Plus, Pencil, ArrowLeft, ImageIcon } from 'lucide-react'
 
 type Factura = {
   id: string
   ruc: string
   monto: number
   descripcion: string
+  foto_url: string | null
 }
 
 export default function FacturasPage() {
@@ -20,7 +21,7 @@ export default function FacturasPage() {
     const fetchFacturas = async () => {
       const { data, error } = await supabase
         .from('facturas_pendientes')
-        .select('id, ruc, monto, descripcion')
+        .select('id, ruc, monto, descripcion, foto_url')
         .order('created_at', { ascending: false })
 
       if (!error && data) setFacturas(data)
@@ -58,21 +59,33 @@ export default function FacturasPage() {
 
         <div className="space-y-3">
           {facturas.map((f) => (
-            <div
-              key={f.id}
-              className="bg-white p-4 rounded-xl shadow-sm flex justify-between items-start"
-            >
-              <div>
-                <p className="font-semibold text-gray-800">RUC: {f.ruc}</p>
-                <p className="text-sm text-gray-600">{f.descripcion}</p>
-                <p className="text-lg font-bold text-red-800 mt-1">S/ {f.monto.toFixed(2)}</p>
+            <div key={f.id} className="bg-white p-4 rounded-xl shadow-sm flex gap-3">
+              {f.foto_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={f.foto_url}
+                  alt="Factura"
+                  className="w-16 h-16 object-cover rounded-lg border shrink-0"
+                />
+              ) : (
+                <div className="w-16 h-16 rounded-lg border bg-gray-50 flex items-center justify-center shrink-0">
+                  <ImageIcon className="w-6 h-6 text-gray-300" />
+                </div>
+              )}
+
+              <div className="flex-1 flex justify-between items-start">
+                <div>
+                  <p className="font-semibold text-gray-800">RUC: {f.ruc}</p>
+                  <p className="text-sm text-gray-600">{f.descripcion}</p>
+                  <p className="text-lg font-bold text-red-800 mt-1">S/ {f.monto.toFixed(2)}</p>
+                </div>
+                <Link
+                  href={`/facturas/${f.id}/editar`}
+                  className="text-red-800 p-2 hover:bg-red-50 rounded-lg"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Link>
               </div>
-              <Link
-                href={`/facturas/${f.id}/editar`}
-                className="text-red-800 p-2 hover:bg-red-50 rounded-lg"
-              >
-                <Pencil className="w-4 h-4" />
-              </Link>
             </div>
           ))}
 
