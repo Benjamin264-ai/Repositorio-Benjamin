@@ -20,6 +20,7 @@ export default function NuevoProductoPage() {
   const [codigoBarras, setCodigoBarras] = useState('')
   const [nombre, setNombre] = useState('')
   const [precio, setPrecio] = useState('')
+  const [descripcion, setDescripcion] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -94,7 +95,11 @@ export default function NuevoProductoPage() {
     return () => {
       cancelado = true
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {})
+        try {
+          scannerRef.current.stop().catch(() => {})
+        } catch {
+          // Puede fallar si nunca llegó a iniciar de verdad; no importa, lo ignoramos.
+        }
         scannerRef.current = null
       }
     }
@@ -142,6 +147,7 @@ export default function NuevoProductoPage() {
         .insert({
           nombre: nombre.trim(),
           precio: parseFloat(precio),
+          descripcion: descripcion.trim() || null,
           codigo_barras: codigoBarras || null,
         })
         .select('id')
@@ -263,6 +269,18 @@ export default function NuevoProductoPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Descripción (opcional)
+              </label>
+              <textarea
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                rows={2}
+                className="w-full border rounded-lg px-3 py-2 text-black"
+              />
+            </div>
+
             <button
               type="submit"
               disabled={loading}
@@ -278,6 +296,7 @@ export default function NuevoProductoPage() {
                 setCodigoBarras('')
                 setNombre('')
                 setPrecio('')
+                setDescripcion('')
                 setError('')
               }}
               className="w-full text-sm text-gray-500"
