@@ -87,8 +87,15 @@ export default function VenderPage() {
 
     try {
       await scanner.start(
-        { facingMode: 'environment', advanced: [{ focusMode: 'continuous' } as any] },
-        { fps: 10, qrbox: { width: 280, height: 160 } },
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 280, height: 160 },
+          videoConstraints: {
+            facingMode: 'environment',
+            advanced: [{ focusMode: 'continuous' }],
+          } as any,
+        },
         async (decodedText) => {
           await buscarProducto(decodedText)
           await scanner.stop()

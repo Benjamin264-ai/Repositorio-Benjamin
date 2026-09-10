@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { ArrowLeft, ScanLine, Keyboard } from 'lucide-react'
+import { ArrowLeft, ScanLine, Keyboard, ImagePlus } from 'lucide-react'
 
 type Modo = 'elegir' | 'escanear' | 'manual'
 
@@ -21,6 +21,8 @@ export default function NuevoProductoPage() {
   const [nombre, setNombre] = useState('')
   const [precio, setPrecio] = useState('')
   const [descripcion, setDescripcion] = useState('')
+  const [foto, setFoto] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -67,8 +69,15 @@ export default function NuevoProductoPage() {
         scannerRef.current = scanner
 
         await scanner.start(
-          { facingMode: 'environment', advanced: [{ focusMode: 'continuous' } as any] },
-          { fps: 10, qrbox: { width: 280, height: 160 } },
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: { width: 280, height: 160 },
+            videoConstraints: {
+              facingMode: 'environment',
+              advanced: [{ focusMode: 'continuous' }],
+            } as any,
+          },
           async (decodedText) => {
             if (cancelado) return
             try {
@@ -121,6 +130,28 @@ export default function NuevoProductoPage() {
 
     setLoading(true)
 
+    let fotoUrl: string | null = null
+    if (foto) {
+      const extension = foto.name.split('.').pop()
+      const nombreArchivo = `${crypto.randomUUID()}.${extension}`
+
+      const { error: errorSubida } = await supabase.storage
+        .from('productos-fotos')
+        .upload(nombreArchivo, foto)
+
+      if (errorSubida) {
+        setLoading(false)
+        setError('No se pudo subir la foto: ' + errorSubida.message)
+        return
+      }
+
+      const { data: urlData } = supabase.storage
+        .from('productos-fotos')
+        .getPublicUrl(nombreArchivo)
+
+      fotoUrl = urlData.publicUrl
+    }
+
     let existente: { id: string } | null = null
     if (codigoBarras) {
       const { data } = await supabase
@@ -149,6 +180,7 @@ export default function NuevoProductoPage() {
           precio: parseFloat(precio),
           descripcion: descripcion.trim() || null,
           codigo_barras: codigoBarras || null,
+          foto_url: fotoUrl,
         })
         .select('id')
         .single()
@@ -279,6 +311,36 @@ export default function NuevoProductoPage() {
                 rows={2}
                 className="w-full border rounded-lg px-3 py-2 text-black"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Foto <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <label className="flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 rounded-lg py-4 cursor-pointer hover:border-red-800">
+                <ImagePlus className="w-5 h-5 text-red-800" />
+                <span className="text-sm text-gray-600">
+                  {foto ? foto.name : 'Toca para elegir una foto'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] ?? null
+                    setFoto(file)
+                    setPreviewUrl(file ? URL.createObjectURL(file) : '')
+                  }}
+                  className="hidden"
+                />
+              </label>
+              {previewUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={previewUrl}
+                  alt="Vista previa"
+                  className="mt-2 w-full max-h-40 object-contain rounded-lg border"
+                />
+              )}
             </div>
 
             <button
