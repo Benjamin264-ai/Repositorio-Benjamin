@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
-import { Plus, Pencil, ArrowLeft, ImageIcon } from 'lucide-react'
+import { Plus, ArrowLeft, ImageIcon } from 'lucide-react'
 
 type Factura = {
   id: string
@@ -59,7 +59,11 @@ export default function FacturasPage() {
 
         <div className="space-y-3">
           {facturas.map((f) => (
-            <div key={f.id} className="bg-white p-4 rounded-xl shadow-sm flex gap-3">
+            <Link
+              key={f.id}
+              href={`/facturas/${f.id}`}
+              className="bg-white p-4 rounded-xl shadow-sm flex gap-3"
+            >
               {f.foto_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -73,20 +77,12 @@ export default function FacturasPage() {
                 </div>
               )}
 
-              <div className="flex-1 flex justify-between items-start">
-                <div>
-                  <p className="font-semibold text-gray-800">RUC: {f.ruc}</p>
-                  <p className="text-sm text-gray-600">{f.descripcion}</p>
-                  <p className="text-lg font-bold text-red-800 mt-1">S/ {f.monto.toFixed(2)}</p>
-                </div>
-                <Link
-                  href={`/facturas/${f.id}/editar`}
-                  className="text-red-800 p-2 hover:bg-red-50 rounded-lg"
-                >
-                  <Pencil className="w-4 h-4" />
-                </Link>
+              <div>
+                <p className="font-semibold text-gray-800">RUC: {f.ruc}</p>
+                <p className="text-sm text-gray-600">{f.descripcion}</p>
+                <p className="text-lg font-bold text-red-800 mt-1">S/ {f.monto.toFixed(2)}</p>
               </div>
-            </div>
+            </Link>
           ))}
 
           {!loading && facturas.length === 0 && (

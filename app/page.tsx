@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { Search, ShoppingBag, Package, LogOut, ShieldCheck, Receipt } from 'lucide-react'
+import { Search, ShoppingBag, Package, LogOut, ShieldCheck, Receipt, ClipboardList } from 'lucide-react'
 
 export default function HomePage() {
   const router = useRouter()
@@ -48,6 +48,7 @@ export default function HomePage() {
     { href: '/consultar', label: 'Consultar precio', icon: Search },
     { href: '/vender', label: 'Vender', icon: ShoppingBag },
     { href: '/productos', label: 'Productos', icon: Package },
+    { href: '/stock', label: 'Stock', icon: ClipboardList },
     { href: '/facturas', label: 'Facturas pendientes', icon: Receipt },
   ]
 

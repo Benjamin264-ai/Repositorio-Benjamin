@@ -153,14 +153,24 @@ export default function VenderPage() {
       })
       .eq('id', producto.inventarioId)
 
-    setSaving(false)
-
     if (stockError) {
+      setSaving(false)
       setError(
         'La venta se registró, pero hubo un problema actualizando el stock: ' + stockError.message
       )
       return
     }
+
+    await supabase.from('movimientos_stock').insert({
+      producto_id: producto.id,
+      tienda_id: profile.tienda_id,
+      tipo: 'salida',
+      cantidad,
+      nota: 'Venta',
+      usuario_id: profile.id,
+    })
+
+    setSaving(false)
 
     setSuccess(`Venta registrada: ${cantidad} x ${producto.nombre} — S/ ${total.toFixed(2)}`)
     setProducto(null)

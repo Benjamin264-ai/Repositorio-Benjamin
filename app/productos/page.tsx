@@ -1,310 +1,172 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { ArrowLeft, ScanLine, Keyboard } from 'lucide-react'
+import { Plus, Pencil, ArrowLeft, Printer, Minus } from 'lucide-react'
 
-type Modo = 'elegir' | 'escanear' | 'manual'
+type ProductoConStock = {
+  id: string
+  nombre: string
+  precio: number
+  stock: number
+  stock_minimo: number
+  inventario_id: string
+}
 
-export default function NuevoProductoPage() {
-  const { profile } = useProfile()
-  const router = useRouter()
-  const scannerRef = useRef<Html5Qrcode | null>(null)
+export default function ProductosPage() {
+  const { profile, loading: loadingProfile } = useProfile()
+  const [productos, setProductos] = useState<ProductoConStock[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const [modo, setModo] = useState<Modo>('elegir')
-  const [scanning, setScanning] = useState(false)
-  const [codigoBarras, setCodigoBarras] = useState('')
-  const [nombre, setNombre] = useState('')
-  const [precio, setPrecio] = useState('')
-  const [descripcion, setDescripcion] = useState('')
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const fetchProductos = async () => {
+    if (!profile?.tienda_id) return
 
-  // Se dispara DESPUÉS de que React ya dibujó el div del lector,
-  // así la cámara siempre encuentra dónde mostrarse.
-  useEffect(() => {
-    if (modo !== 'escanear' || codigoBarras) return
+    const { data, error } = await supabase
+      .from('inventario')
+      .select('id, stock, stock_minimo, productos(id, nombre, precio)')
+      .eq('tienda_id', profile.tienda_id)
 
-    let cancelado = false
-
-    // Verifica repetidamente (cada 50ms, hasta 20 veces = 1 segundo) si la casilla
-    // ya existe en pantalla, en vez de asumir un tiempo fijo de espera.
-    const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
-      new Promise((resolve) => {
-        const check = (restantes: number) => {
-          if (document.getElementById(id)) {
-            resolve(true)
-            return
-          }
-          if (restantes <= 0) {
-            resolve(false)
-            return
-          }
-          setTimeout(() => check(restantes - 1), 50)
-        }
-        check(intentos)
-      })
-
-    const iniciar = async () => {
-      setScanning(true)
-      setError('')
-
-      const existe = await esperarElemento('reader-nuevo-producto')
-      if (cancelado) return
-
-      if (!existe) {
-        setError('No se pudo preparar la cámara. Cierra esta pantalla e inténtalo de nuevo.')
-        setScanning(false)
-        return
-      }
-
-      try {
-        const scanner = new Html5Qrcode('reader-nuevo-producto')
-        scannerRef.current = scanner
-
-        await scanner.start(
-          { facingMode: 'environment' },
-          { fps: 10, qrbox: 250 },
-          async (decodedText) => {
-            if (cancelado) return
-            try {
-              await scanner.stop()
-            } catch {
-              // La cámara puede fallar al cerrar si ya se limpió sola; no es grave, seguimos.
-            }
-            setScanning(false)
-            setCodigoBarras(decodedText)
-          },
-          () => {}
-        )
-      } catch (err) {
-        if (!cancelado) {
-          const mensaje = err instanceof Error ? err.message : String(err)
-          setError(`No se pudo acceder a la cámara: ${mensaje}`)
-          setScanning(false)
-        }
-      }
+    if (!error && data) {
+      const lista = data
+        .map((row: any) => ({
+          id: row.productos.id,
+          nombre: row.productos.nombre,
+          precio: row.productos.precio,
+          stock: row.stock,
+          stock_minimo: row.stock_minimo,
+          inventario_id: row.id,
+        }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      setProductos(lista)
     }
-
-    iniciar()
-
-    return () => {
-      cancelado = true
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.stop().catch(() => {})
-        } catch {
-          // Puede fallar si nunca llegó a iniciar de verdad; no importa, lo ignoramos.
-        }
-        scannerRef.current = null
-      }
-    }
-  }, [modo, codigoBarras])
-
-  const cancelarEscaneo = () => {
-    setModo('elegir')
-    setScanning(false)
+    setLoading(false)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
+  useEffect(() => {
+    if (profile) fetchProductos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile])
 
-    if (!profile?.tienda_id) {
-      setError('No se pudo identificar tu tienda. Contacta al admin.')
-      return
-    }
+  const ajustarStock = async (
+    inventarioId: string,
+    productoId: string,
+    delta: number,
+    stockActual: number
+  ) => {
+    const nuevoStock = Math.max(0, stockActual + delta)
 
-    setLoading(true)
-
-    let existente: { id: string } | null = null
-    if (codigoBarras) {
-      const { data } = await supabase
-        .from('productos')
-        .select('id')
-        .eq('codigo_barras', codigoBarras)
-        .maybeSingle()
-      existente = data
-    }
-    if (!existente) {
-      const { data } = await supabase
-        .from('productos')
-        .select('id')
-        .ilike('nombre', nombre.trim())
-        .maybeSingle()
-      existente = data
-    }
-
-    let productoId = existente?.id
-
-    if (!productoId) {
-      const { data: nuevo, error: errorProducto } = await supabase
-        .from('productos')
-        .insert({
-          nombre: nombre.trim(),
-          precio: parseFloat(precio),
-          descripcion: descripcion.trim() || null,
-          codigo_barras: codigoBarras || null,
-        })
-        .select('id')
-        .single()
-
-      if (errorProducto || !nuevo) {
-        setLoading(false)
-        setError(errorProducto?.message ?? 'No se pudo crear el producto')
-        return
-      }
-      productoId = nuevo.id
-    }
-
-    const { error: errorInventario } = await supabase.from('inventario').upsert(
-      {
-        producto_id: productoId,
-        tienda_id: profile.tienda_id,
-      },
-      { onConflict: 'producto_id,tienda_id', ignoreDuplicates: true }
+    setProductos((prev) =>
+      prev.map((p) => (p.inventario_id === inventarioId ? { ...p, stock: nuevoStock } : p))
     )
 
-    setLoading(false)
+    await supabase
+      .from('inventario')
+      .update({ stock: nuevoStock, updated_at: new Date().toISOString() })
+      .eq('id', inventarioId)
 
-    if (errorInventario) {
-      setError(errorInventario.message)
-      return
+    if (profile?.tienda_id) {
+      await supabase.from('movimientos_stock').insert({
+        producto_id: productoId,
+        tienda_id: profile.tienda_id,
+        tipo: 'ajuste',
+        cantidad: Math.abs(delta),
+        nota: delta > 0 ? 'Ajuste manual (+1)' : 'Ajuste manual (-1)',
+        usuario_id: profile.id,
+      })
     }
-
-    router.push('/productos')
   }
+
+  const esAdmin = profile?.rol === 'admin'
 
   return (
     <div className="min-h-screen bg-red-50 p-6">
       <div className="max-w-md mx-auto">
-        <Link href="/productos" className="flex items-center gap-1 text-red-800 text-sm mb-4">
-          <ArrowLeft className="w-4 h-4" /> Volver
-        </Link>
-
-        <h1 className="text-xl font-bold text-gray-800 mb-1">Agregar producto</h1>
-        <p className="text-sm text-gray-500 mb-4">
-          El stock se registra después, desde la lista de Productos.
-        </p>
-
-        {/* El error ahora se muestra SIEMPRE que exista, sin importar la pantalla en la que estés */}
-        {error && (
-          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">{error}</p>
-        )}
-
-        {modo === 'elegir' && (
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => {
-                setCodigoBarras('')
-                setError('')
-                setModo('escanear')
-              }}
-              className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
+        <div className="flex items-center justify-between mb-4">
+          <Link href="/" className="flex items-center gap-1 text-red-800 text-sm">
+            <ArrowLeft className="w-4 h-4" /> Volver
+          </Link>
+          <div className="flex gap-2">
+            <Link
+              href="/productos/imprimir-qr"
+              className="flex items-center gap-1 bg-white border border-red-800 text-red-800 text-sm font-medium px-3 py-2 rounded-lg"
             >
-              <ScanLine className="w-7 h-7 text-red-800" />
-              <span className="text-sm font-medium text-gray-800">Escanear código</span>
-            </button>
-            <button
-              onClick={() => setModo('manual')}
-              className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
+              <Printer className="w-4 h-4" /> QR
+            </Link>
+            <Link
+              href="/productos/nuevo"
+              className="flex items-center gap-1 bg-red-800 text-white text-sm font-medium px-3 py-2 rounded-lg"
             >
-              <Keyboard className="w-7 h-7 text-red-800" />
-              <span className="text-sm font-medium text-gray-800">Ingresar manual</span>
-            </button>
+              <Plus className="w-4 h-4" /> Agregar
+            </Link>
           </div>
-        )}
+        </div>
 
-        {modo === 'escanear' && !codigoBarras && (
-          <div className="mb-4">
-            <button
-              onClick={cancelarEscaneo}
-              className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium mb-3"
-            >
-              Cancelar
-            </button>
-            {/* Este div SIEMPRE existe apenas entras a modo "escanear", antes de llamar a la cámara */}
-            <div id="reader-nuevo-producto"></div>
-            {scanning && (
-              <p className="text-center text-sm text-gray-500 mt-2">Apunta al código...</p>
-            )}
-          </div>
-        )}
+        <h1 className="text-xl font-bold text-gray-800 mb-4">Productos</h1>
 
-        {(modo === 'manual' || (modo === 'escanear' && codigoBarras)) && (
-          <form onSubmit={handleSubmit} className="space-y-4 bg-white p-5 rounded-xl shadow-sm mt-4">
-            {codigoBarras && (
-              <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                <p className="text-xs text-red-700 font-medium">Código escaneado:</p>
-                <p className="text-sm text-gray-800 font-mono break-all">{codigoBarras}</p>
+        {(loadingProfile || loading) && <p className="text-gray-500">Cargando...</p>}
+
+        <div className="space-y-3">
+          {productos.map((p) => (
+            <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm">
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-semibold text-gray-800">{p.nombre}</p>
+                  <p className="text-sm text-gray-500">S/ {p.precio.toFixed(2)}</p>
+                </div>
+                {esAdmin && (
+                  <Link
+                    href={`/productos/${p.id}/editar`}
+                    className="text-red-800 p-2 hover:bg-red-50 rounded-lg"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </Link>
+                )}
               </div>
-            )}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
-              <input
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-black"
-              />
+              <div className="flex items-center justify-between mt-3 pt-3 border-t">
+                <span className="text-sm text-gray-600">
+                  Stock:{' '}
+                  <span
+                    className={
+                      p.stock <= p.stock_minimo
+                        ? 'text-red-600 font-bold'
+                        : 'font-semibold text-gray-800'
+                    }
+                  >
+                    {p.stock}
+                  </span>
+                  {p.stock <= p.stock_minimo && (
+                    <span className="text-red-600 text-xs"> · Bajo</span>
+                  )}
+                </span>
+
+                {/* Solo el admin puede ajustar el stock; los demás solo lo ven */}
+                {esAdmin && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => ajustarStock(p.inventario_id, p.id, -1, p.stock)}
+                      className="w-8 h-8 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center"
+                    >
+                      <Minus className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => ajustarStock(p.inventario_id, p.id, 1, p.stock)}
+                      className="w-8 h-8 rounded-lg bg-gray-100 text-gray-700 flex items-center justify-center"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
+          ))}
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Precio (S/) — solo aplica si es un producto nuevo
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={precio}
-                onChange={(e) => setPrecio(e.target.value)}
-                required
-                className="w-full border rounded-lg px-3 py-2 text-black"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Descripción (opcional)
-              </label>
-              <textarea
-                value={descripcion}
-                onChange={(e) => setDescripcion(e.target.value)}
-                rows={2}
-                className="w-full border rounded-lg px-3 py-2 text-black"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-red-800 text-white py-3 rounded-lg font-medium disabled:opacity-60"
-            >
-              {loading ? 'Guardando...' : 'Guardar producto'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setModo('elegir')
-                setCodigoBarras('')
-                setNombre('')
-                setPrecio('')
-                setDescripcion('')
-                setError('')
-              }}
-              className="w-full text-sm text-gray-500"
-            >
-              Empezar de nuevo
-            </button>
-          </form>
-        )}
+          {!loading && productos.length === 0 && (
+            <p className="text-gray-500 text-sm">Todavía no hay productos en tu tienda.</p>
+          )}
+        </div>
       </div>
     </div>
   )
