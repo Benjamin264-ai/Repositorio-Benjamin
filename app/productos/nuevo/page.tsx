@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
+import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { ArrowLeft, ScanLine, Keyboard, ImagePlus } from 'lucide-react'
 
 type Modo = 'elegir' | 'escanear' | 'manual'
@@ -13,10 +13,8 @@ type Modo = 'elegir' | 'escanear' | 'manual'
 export default function NuevoProductoPage() {
   const { profile } = useProfile()
   const router = useRouter()
-  const scannerRef = useRef<Html5Qrcode | null>(null)
 
   const [modo, setModo] = useState<Modo>('elegir')
-  const [scanning, setScanning] = useState(false)
   const [codigoBarras, setCodigoBarras] = useState('')
   const [nombre, setNombre] = useState('')
   const [precio, setPrecio] = useState('')
@@ -26,97 +24,23 @@ export default function NuevoProductoPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // Se dispara DESPUÉS de que React ya dibujó el div del lector,
-  // así la cámara siempre encuentra dónde mostrarse.
-  useEffect(() => {
-    if (modo !== 'escanear' || codigoBarras) return
+  const alDetectar = (codigo: string) => {
+    setCodigoBarras(codigo)
+  }
 
-    let cancelado = false
+  const { videoRef, scanning, error: errorCamara, usaNativo, start, stop } =
+    useBarcodeScanner(alDetectar)
 
-    // Verifica repetidamente (cada 50ms, hasta 20 veces = 1 segundo) si la casilla
-    // ya existe en pantalla, en vez de asumir un tiempo fijo de espera.
-    const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
-      new Promise((resolve) => {
-        const check = (restantes: number) => {
-          if (document.getElementById(id)) {
-            resolve(true)
-            return
-          }
-          if (restantes <= 0) {
-            resolve(false)
-            return
-          }
-          setTimeout(() => check(restantes - 1), 50)
-        }
-        check(intentos)
-      })
-
-    const iniciar = async () => {
-      setScanning(true)
-      setError('')
-
-      const existe = await esperarElemento('reader-nuevo-producto')
-      if (cancelado) return
-
-      if (!existe) {
-        setError('No se pudo preparar la cámara. Cierra esta pantalla e inténtalo de nuevo.')
-        setScanning(false)
-        return
-      }
-
-      try {
-        const scanner = new Html5Qrcode('reader-nuevo-producto')
-        scannerRef.current = scanner
-
-        await scanner.start(
-          { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: { width: 280, height: 160 },
-            videoConstraints: {
-              facingMode: 'environment',
-              advanced: [{ focusMode: 'continuous' }],
-            } as any,
-          },
-          async (decodedText) => {
-            if (cancelado) return
-            try {
-              await scanner.stop()
-            } catch {
-              // La cámara puede fallar al cerrar si ya se limpió sola; no es grave, seguimos.
-            }
-            setScanning(false)
-            setCodigoBarras(decodedText)
-          },
-          () => {}
-        )
-      } catch (err) {
-        if (!cancelado) {
-          const mensaje = err instanceof Error ? err.message : String(err)
-          setError(`No se pudo acceder a la cámara: ${mensaje}`)
-          setScanning(false)
-        }
-      }
-    }
-
-    iniciar()
-
-    return () => {
-      cancelado = true
-      if (scannerRef.current) {
-        try {
-          scannerRef.current.stop().catch(() => {})
-        } catch {
-          // Puede fallar si nunca llegó a iniciar de verdad; no importa, lo ignoramos.
-        }
-        scannerRef.current = null
-      }
-    }
-  }, [modo, codigoBarras])
+  const iniciarEscaneo = () => {
+    setCodigoBarras('')
+    setError('')
+    setModo('escanear')
+    start('reader-nuevo-producto')
+  }
 
   const cancelarEscaneo = () => {
+    stop()
     setModo('elegir')
-    setScanning(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -223,19 +147,16 @@ export default function NuevoProductoPage() {
           El stock se registra después, desde la lista de Productos.
         </p>
 
-        {/* El error ahora se muestra SIEMPRE que exista, sin importar la pantalla en la que estés */}
-        {error && (
-          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">{error}</p>
+        {(error || errorCamara) && (
+          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">
+            {error || errorCamara}
+          </p>
         )}
 
         {modo === 'elegir' && (
           <div className="grid grid-cols-2 gap-3">
             <button
-              onClick={() => {
-                setCodigoBarras('')
-                setError('')
-                setModo('escanear')
-              }}
+              onClick={iniciarEscaneo}
               className="flex flex-col items-center gap-2 bg-white p-5 rounded-xl shadow-sm border-2 border-transparent hover:border-red-800"
             >
               <ScanLine className="w-7 h-7 text-red-800" />
@@ -259,8 +180,16 @@ export default function NuevoProductoPage() {
             >
               Cancelar
             </button>
-            {/* Este div SIEMPRE existe apenas entras a modo "escanear", antes de llamar a la cámara */}
-            <div id="reader-nuevo-producto"></div>
+            <video
+              ref={videoRef}
+              playsInline
+              muted
+              className={`w-full rounded-lg ${scanning && usaNativo ? 'block' : 'hidden'}`}
+            />
+            <div
+              id="reader-nuevo-producto"
+              className={scanning && !usaNativo ? 'block' : 'hidden'}
+            ></div>
             {scanning && (
               <p className="text-center text-sm text-gray-500 mt-2">Apunta al código...</p>
             )}
@@ -359,6 +288,8 @@ export default function NuevoProductoPage() {
                 setNombre('')
                 setPrecio('')
                 setDescripcion('')
+                setFoto(null)
+                setPreviewUrl('')
                 setError('')
               }}
               className="w-full text-sm text-gray-500"

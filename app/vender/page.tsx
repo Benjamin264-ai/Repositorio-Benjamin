@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
+import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { ArrowLeft, Banknote, Smartphone, Camera } from 'lucide-react'
 
 type ProductoVenta = {
@@ -22,15 +22,13 @@ export default function VenderPage() {
   const [producto, setProducto] = useState<ProductoVenta | null>(null)
   const [cantidad, setCantidad] = useState(1)
   const [medioPago, setMedioPago] = useState<'efectivo' | 'yape' | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [error, setError] = useState('')
+  const [errorBusqueda, setErrorBusqueda] = useState('')
   const [success, setSuccess] = useState('')
   const [saving, setSaving] = useState(false)
-  const scannerRef = useRef<Html5Qrcode | null>(null)
 
   const buscarProducto = async (codigo: string) => {
     if (!profile?.tienda_id) {
-      setError('No se pudo identificar tu tienda')
+      setErrorBusqueda('No se pudo identificar tu tienda')
       return
     }
 
@@ -45,7 +43,7 @@ export default function VenderPage() {
     const { data: prod, error: errorProd } = await query
 
     if (errorProd || !prod) {
-      setError('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
+      setErrorBusqueda('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
       setProducto(null)
       return
     }
@@ -58,12 +56,12 @@ export default function VenderPage() {
       .maybeSingle()
 
     if (errorInv || !inv) {
-      setError('Este producto no tiene stock registrado en tu tienda')
+      setErrorBusqueda('Este producto no tiene stock registrado en tu tienda')
       setProducto(null)
       return
     }
 
-    setError('')
+    setErrorBusqueda('')
     setSuccess('')
     setProducto({
       id: prod.id,
@@ -76,56 +74,25 @@ export default function VenderPage() {
     setMedioPago(null)
   }
 
-  const startScan = async () => {
-    setScanning(true)
-    setError('')
-    setSuccess('')
+  const { videoRef, scanning, error, usaNativo, start, stop } = useBarcodeScanner(buscarProducto)
+
+  const iniciarEscaneo = () => {
     setProducto(null)
-
-    const scanner = new Html5Qrcode('reader-vender')
-    scannerRef.current = scanner
-
-    try {
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: { width: 280, height: 160 },
-          videoConstraints: {
-            facingMode: 'environment',
-            advanced: [{ focusMode: 'continuous' }],
-          } as any,
-        },
-        async (decodedText) => {
-          await buscarProducto(decodedText)
-          await scanner.stop()
-          setScanning(false)
-        },
-        () => {}
-      )
-    } catch {
-      setError('No se pudo acceder a la cámara')
-      setScanning(false)
-    }
-  }
-
-  const stopScan = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop()
-    }
-    setScanning(false)
+    setErrorBusqueda('')
+    setSuccess('')
+    start('reader-vender')
   }
 
   const confirmarVenta = async () => {
     if (!producto || !medioPago || !profile) return
 
     if (cantidad > producto.stock) {
-      setError(`Solo hay ${producto.stock} en stock`)
+      setErrorBusqueda(`Solo hay ${producto.stock} en stock`)
       return
     }
 
     setSaving(true)
-    setError('')
+    setErrorBusqueda('')
 
     const total = producto.precio * cantidad
 
@@ -141,7 +108,7 @@ export default function VenderPage() {
 
     if (ventaError) {
       setSaving(false)
-      setError(ventaError.message)
+      setErrorBusqueda(ventaError.message)
       return
     }
 
@@ -155,7 +122,7 @@ export default function VenderPage() {
 
     if (stockError) {
       setSaving(false)
-      setError(
+      setErrorBusqueda(
         'La venta se registró, pero hubo un problema actualizando el stock: ' + stockError.message
       )
       return
@@ -171,7 +138,6 @@ export default function VenderPage() {
     })
 
     setSaving(false)
-
     setSuccess(`Venta registrada: ${cantidad} x ${producto.nombre} — S/ ${total.toFixed(2)}`)
     setProducto(null)
     setMedioPago(null)
@@ -189,7 +155,7 @@ export default function VenderPage() {
 
         {!scanning && !producto && (
           <button
-            onClick={startScan}
+            onClick={iniciarEscaneo}
             className="w-full flex items-center justify-center gap-2 bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
           >
             <Camera className="w-5 h-5" /> Escanear producto
@@ -198,17 +164,25 @@ export default function VenderPage() {
 
         {scanning && (
           <button
-            onClick={stopScan}
+            onClick={stop}
             className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium mb-4"
           >
             Cancelar
           </button>
         )}
 
-        <div id="reader-vender" className="mb-4"></div>
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          className={`w-full rounded-lg mb-2 ${scanning && usaNativo ? 'block' : 'hidden'}`}
+        />
+        <div id="reader-vender" className={scanning && !usaNativo ? 'mb-4' : 'hidden'}></div>
 
-        {error && (
-          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">{error}</p>
+        {(error || errorBusqueda) && (
+          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm mb-4">
+            {error || errorBusqueda}
+          </p>
         )}
 
         {success && (

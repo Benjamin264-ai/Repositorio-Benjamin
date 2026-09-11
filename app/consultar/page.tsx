@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-import { Html5Qrcode } from 'html5-qrcode'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
+import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
 import { ArrowLeft, Camera } from 'lucide-react'
 
 type ProductoInfo = {
@@ -18,18 +18,14 @@ const ES_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default function ConsultarPage() {
   const { profile } = useProfile()
   const [producto, setProducto] = useState<ProductoInfo | null>(null)
-  const [scanning, setScanning] = useState(false)
-  const [error, setError] = useState('')
-  const scannerRef = useRef<Html5Qrcode | null>(null)
+  const [errorBusqueda, setErrorBusqueda] = useState('')
 
   const buscarProducto = async (codigo: string) => {
     if (!profile?.tienda_id) {
-      setError('No se pudo identificar tu tienda')
+      setErrorBusqueda('No se pudo identificar tu tienda')
       return
     }
 
-    // Si el texto escaneado tiene forma de UUID, es nuestro QR impreso (busca por id).
-    // Si no, asumimos que es el código de barras original de fábrica.
     const query = ES_UUID.test(codigo)
       ? supabase.from('productos').select('id, nombre, precio').eq('id', codigo).maybeSingle()
       : supabase
@@ -41,7 +37,7 @@ export default function ConsultarPage() {
     const { data: prod, error: errorProd } = await query
 
     if (errorProd || !prod) {
-      setError('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
+      setErrorBusqueda('Producto no encontrado (revisa si ya fue registrado en el catálogo)')
       setProducto(null)
       return
     }
@@ -53,7 +49,7 @@ export default function ConsultarPage() {
       .eq('tienda_id', profile.tienda_id)
       .maybeSingle()
 
-    setError('')
+    setErrorBusqueda('')
     setProducto({
       nombre: prod.nombre,
       precio: prod.precio,
@@ -61,43 +57,12 @@ export default function ConsultarPage() {
     })
   }
 
-  const startScan = async () => {
-    setScanning(true)
-    setError('')
+  const { videoRef, scanning, error, usaNativo, start, stop } = useBarcodeScanner(buscarProducto)
+
+  const iniciarEscaneo = () => {
     setProducto(null)
-
-    const scanner = new Html5Qrcode('reader')
-    scannerRef.current = scanner
-
-    try {
-      await scanner.start(
-        { facingMode: 'environment' },
-        {
-          fps: 10,
-          qrbox: { width: 280, height: 160 },
-          videoConstraints: {
-            facingMode: 'environment',
-            advanced: [{ focusMode: 'continuous' }],
-          } as any,
-        },
-        async (decodedText) => {
-          await buscarProducto(decodedText)
-          await scanner.stop()
-          setScanning(false)
-        },
-        () => {}
-      )
-    } catch {
-      setError('No se pudo acceder a la cámara')
-      setScanning(false)
-    }
-  }
-
-  const stopScan = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop()
-    }
-    setScanning(false)
+    setErrorBusqueda('')
+    start('reader')
   }
 
   return (
@@ -110,7 +75,7 @@ export default function ConsultarPage() {
 
         {!scanning && (
           <button
-            onClick={startScan}
+            onClick={iniciarEscaneo}
             className="w-full flex items-center justify-center gap-2 bg-red-800 text-white py-3 rounded-lg font-medium mb-4"
           >
             <Camera className="w-5 h-5" /> Escanear
@@ -119,16 +84,28 @@ export default function ConsultarPage() {
 
         {scanning && (
           <button
-            onClick={stopScan}
+            onClick={stop}
             className="w-full bg-gray-600 text-white py-3 rounded-lg font-medium mb-4"
           >
             Cancelar
           </button>
         )}
 
-        <div id="reader" className="mb-4"></div>
+        {/* Video para el modo rápido (nativo). Se muestra solo cuando ese modo está activo. */}
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          className={`w-full rounded-lg mb-2 ${scanning && usaNativo ? 'block' : 'hidden'}`}
+        />
+        {/* Contenedor para el modo de respaldo (html5-qrcode, ej. iPhone) */}
+        <div id="reader" className={scanning && !usaNativo ? 'mb-4' : 'hidden'}></div>
 
-        {error && <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm">{error}</p>}
+        {(error || errorBusqueda) && (
+          <p className="text-red-700 bg-red-100 rounded-lg px-3 py-2 text-sm">
+            {error || errorBusqueda}
+          </p>
+        )}
 
         {producto && (
           <div className="bg-white p-4 rounded-lg shadow-sm">
