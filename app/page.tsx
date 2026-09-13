@@ -5,7 +5,16 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
-import { Search, ShoppingBag, Package, LogOut, ShieldCheck, Receipt, ClipboardList } from 'lucide-react'
+import {
+  Search,
+  ShoppingBag,
+  Package,
+  LogOut,
+  ShieldCheck,
+  Receipt,
+  ClipboardList,
+  Calendar,
+} from 'lucide-react'
 
 export default function HomePage() {
   const router = useRouter()
@@ -50,6 +59,7 @@ export default function HomePage() {
     { href: '/productos', label: 'Productos', icon: Package },
     { href: '/stock', label: 'Stock', icon: ClipboardList },
     { href: '/facturas', label: 'Facturas pendientes', icon: Receipt },
+    { href: '/horarios', label: 'Horarios', icon: Calendar },
   ]
 
   return (
@@ -69,7 +79,7 @@ export default function HomePage() {
 
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-2xl font-black leading-tight">{profile.nombre}</p>
+            <p className="text-2xl font-black leading-tight">Hola, {profile.nombre}</p>
             {profile.rol === 'admin' ? (
               <span className="inline-flex items-center gap-1 bg-amber-400 text-red-950 text-sm font-bold px-3 py-1 rounded-full mt-1">
                 <ShieldCheck className="w-4 h-4" /> ADMIN

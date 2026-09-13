@@ -5,11 +5,13 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { useProfile } from '@/lib/useProfile'
 import { useBarcodeScanner } from '@/lib/useBarcodeScanner'
-import { ArrowLeft, Camera } from 'lucide-react'
+import { ArrowLeft, Camera, ImageIcon } from 'lucide-react'
 
 type ProductoInfo = {
   nombre: string
   precio: number
+  descripcion: string | null
+  foto_url: string | null
   stock: number
 }
 
@@ -27,10 +29,14 @@ export default function ConsultarPage() {
     }
 
     const query = ES_UUID.test(codigo)
-      ? supabase.from('productos').select('id, nombre, precio').eq('id', codigo).maybeSingle()
+      ? supabase
+          .from('productos')
+          .select('id, nombre, precio, descripcion, foto_url')
+          .eq('id', codigo)
+          .maybeSingle()
       : supabase
           .from('productos')
-          .select('id, nombre, precio')
+          .select('id, nombre, precio, descripcion, foto_url')
           .eq('codigo_barras', codigo)
           .maybeSingle()
 
@@ -53,6 +59,8 @@ export default function ConsultarPage() {
     setProducto({
       nombre: prod.nombre,
       precio: prod.precio,
+      descripcion: prod.descripcion,
+      foto_url: prod.foto_url,
       stock: inv?.stock ?? 0,
     })
   }
@@ -91,14 +99,12 @@ export default function ConsultarPage() {
           </button>
         )}
 
-        {/* Video para el modo rápido (nativo). Se muestra solo cuando ese modo está activo. */}
         <video
           ref={videoRef}
           playsInline
           muted
           className={`w-full rounded-lg mb-2 ${scanning && usaNativo ? 'block' : 'hidden'}`}
         />
-        {/* Contenedor para el modo de respaldo (html5-qrcode, ej. iPhone) */}
         <div id="reader" className={scanning && !usaNativo ? 'mb-4' : 'hidden'}></div>
 
         {(error || errorBusqueda) && (
@@ -108,10 +114,27 @@ export default function ConsultarPage() {
         )}
 
         {producto && (
-          <div className="bg-white p-4 rounded-lg shadow-sm">
-            <h2 className="text-lg font-bold text-gray-800">{producto.nombre}</h2>
-            <p className="text-2xl text-red-800 font-bold">S/ {producto.precio.toFixed(2)}</p>
-            <p className="text-sm text-gray-600">Stock en tu tienda: {producto.stock}</p>
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            {producto.foto_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={producto.foto_url}
+                alt={producto.nombre}
+                className="w-full max-h-56 object-contain bg-gray-50"
+              />
+            ) : (
+              <div className="w-full h-32 bg-gray-50 flex items-center justify-center text-gray-300">
+                <ImageIcon className="w-8 h-8" />
+              </div>
+            )}
+            <div className="p-4">
+              <h2 className="text-lg font-bold text-gray-800">{producto.nombre}</h2>
+              <p className="text-2xl text-red-800 font-bold">S/ {producto.precio.toFixed(2)}</p>
+              {producto.descripcion && (
+                <p className="text-sm text-gray-600 mt-1">{producto.descripcion}</p>
+              )}
+              <p className="text-sm text-gray-500 mt-2">Stock en tu tienda: {producto.stock}</p>
+            </div>
           </div>
         )}
       </div>
