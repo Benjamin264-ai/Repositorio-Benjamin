@@ -1,8 +1,8 @@
 'use client'
-
+ 
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
-
+ 
 // Solo códigos de barras — sin QR, ya que Comercial Mary solo usa los códigos
 // de fábrica de los productos.
 const FORMATOS_NATIVOS = [
@@ -15,7 +15,7 @@ const FORMATOS_NATIVOS = [
   'codabar',
   'itf',
 ]
-
+ 
 const FORMATOS_HTML5QRCODE = [
   Html5QrcodeSupportedFormats.EAN_13,
   Html5QrcodeSupportedFormats.EAN_8,
@@ -26,7 +26,7 @@ const FORMATOS_HTML5QRCODE = [
   Html5QrcodeSupportedFormats.CODABAR,
   Html5QrcodeSupportedFormats.ITF,
 ]
-
+ 
 const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
   new Promise((resolve) => {
     const check = (restantes: number) => {
@@ -42,18 +42,18 @@ const esperarElemento = (id: string, intentos = 20): Promise<boolean> =>
     }
     check(intentos)
   })
-
+ 
 export function useBarcodeScanner(onDetected: (texto: string) => void) {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const rafRef = useRef<number | null>(null)
   const html5QrRef = useRef<Html5Qrcode | null>(null)
   const detenidoRef = useRef(false)
-
+ 
   const [scanning, setScanning] = useState(false)
   const [error, setError] = useState('')
   const [usaNativo, setUsaNativo] = useState(false)
-
+ 
   const stop = useCallback(async () => {
     detenidoRef.current = true
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -71,31 +71,32 @@ export function useBarcodeScanner(onDetected: (texto: string) => void) {
     }
     setScanning(false)
   }, [])
-
+ 
   const start = useCallback(
     async (elementoFallbackId: string) => {
       detenidoRef.current = false
       setError('')
       setScanning(true)
-
+ 
       const tieneNativo = typeof window !== 'undefined' && 'BarcodeDetector' in window
-
+ 
       if (tieneNativo && videoRef.current) {
         try {
-          const stream = await navigator.mediaDevices.getUserMedia({
+          const constraints: MediaStreamConstraints = {
             video: {
               facingMode: 'environment',
               advanced: [{ focusMode: 'continuous' }],
-            } as any,
-          })
+            } as MediaTrackConstraints,
+          }
+          const stream = await navigator.mediaDevices.getUserMedia(constraints)
           streamRef.current = stream
           videoRef.current.srcObject = stream
           await videoRef.current.play()
           setUsaNativo(true)
-
-          // @ts-ignore - API nueva, TypeScript todavía no la tiene tipada por defecto
+ 
+          // @ts-expect-error - BarcodeDetector es una API nueva, TypeScript aún no la tiene tipada
           const detector = new window.BarcodeDetector({ formats: FORMATOS_NATIVOS })
-
+ 
           const loop = async () => {
             if (detenidoRef.current || !videoRef.current) return
             try {
@@ -117,33 +118,35 @@ export function useBarcodeScanner(onDetected: (texto: string) => void) {
           // Si falla el nativo (permiso, hardware, lo que sea), seguimos al respaldo de abajo
         }
       }
-
+ 
       // Respaldo: html5-qrcode (para navegadores sin detección nativa, ej. iPhone)
       setUsaNativo(false)
       const existe = await esperarElemento(elementoFallbackId)
       if (detenidoRef.current) return
-
+ 
       if (!existe) {
         setError('No se pudo preparar la cámara. Cierra e inténtalo de nuevo.')
         setScanning(false)
         return
       }
-
+ 
       try {
         const scanner = new Html5Qrcode(elementoFallbackId)
         html5QrRef.current = scanner
-
+ 
+        const config = {
+          fps: 10,
+          qrbox: { width: 280, height: 160 },
+          formatsToSupport: FORMATOS_HTML5QRCODE,
+          videoConstraints: {
+            facingMode: 'environment',
+            advanced: [{ focusMode: 'continuous' }],
+          },
+        } as any
+ 
         await scanner.start(
           { facingMode: 'environment' },
-          {
-            fps: 10,
-            qrbox: { width: 280, height: 160 },
-            formatsToSupport: FORMATOS_HTML5QRCODE,
-            videoConstraints: {
-              facingMode: 'environment',
-              advanced: [{ focusMode: 'continuous' }],
-            } as any,
-          },
+          config,
           async (decodedText) => {
             if (detenidoRef.current) return
             try {
@@ -166,13 +169,14 @@ export function useBarcodeScanner(onDetected: (texto: string) => void) {
     },
     [onDetected, stop]
   )
-
+ 
   useEffect(() => {
     return () => {
       stop()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
+ 
   return { videoRef, scanning, error, usaNativo, start, stop }
 }
+ 
